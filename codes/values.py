@@ -23,3 +23,9 @@ load_dotenv()
 
 # Cargamos las variables para python
 contracts = strtobool(os.getenv("CONTRACTS"))
+
+db_user = os.getenv("DB_USER")
+db_user_password = os.getenv("DB_USER_PASSWORD")
+db_host = os.getenv("DB_HOST")
+db_port = int(os.getenv("DB_PORT"))
+db_name = os.getenv("DB_NAME")
