@@ -48,7 +48,7 @@ def recreate_folder(path: str) -> None:
     return
 
 
-def get_activate_delegations(db_user: str, db_user_password: str, db_host: str, db_port: str,
+def get_activate_delegations(db_user: str, db_user_password: str, db_host: str, db_port: int,
                              db_name: str) -> tuple[dict[int, str], list[str]]:
     # Cadena de conexión
     connection_string = f"mysql+pymysql://{db_user}:{db_user_password}@{db_host}:{db_port}/{db_name}"
@@ -332,7 +332,8 @@ def get_final_contracts(df: pd.DataFrame, delegations_dict: dict[int, str]) -> p
     return final_data
 
 
-def process_data(delegation_list: list[str], downloads_paths: str, delegations_dict: dict[int, str]) -> pd.DataFrame:
+def process_data(delegation_list: list[str], downloads_paths: str,
+                 delegations_dict: dict[int, str]) -> pd.DataFrame:
     # Ignoramos Warnings
     warnings.filterwarnings("ignore")
     # Lista de dataframes
@@ -349,14 +350,29 @@ def process_data(delegation_list: list[str], downloads_paths: str, delegations_d
             df = clean_data(df)
             # Reestructura de contratos
             df = get_final_contracts(df, delegations_dict)
+            # Guardamos en la lista de dfs
+            all_dfs.append(df)
         else:
             print(f"\t\tFile not found for delegation {delegation}")
+    # Unimos todos en un dataframe final
+    final_df = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame()
     # Terminamos la función regresando el dataframe final
+    return final_df
+
+
+# Función para subir la data
+def upload_data(df: pd.DataFrame, db_user: str, db_user_password: str, db_host: str, db_port: int,
+                db_name: str) -> None:
+    # Creamos la conexión
+    engine = create_engine(f"mysql+pymysql://{db_user}:{db_user_password}@{db_host}:{db_port}/{db_name}")
+    # Agregamos el dataframe a la base de datos
+    df.to_sql('final_contracts', con=engine, if_exists='replace', index=False)
+    # Terminamos la función
     return
 
 
 # Función main
-def main_contracts(db_user: str, db_user_password: str, db_host: str, db_port: str, db_name: str,
+def main_contracts(db_user: str, db_user_password: str, db_host: str, db_port: int, db_name: str,
                    headless: bool, timeout: int, user_mail: str, user_password: str, max_workers: int) -> Result:
     print("\t[Contracts Block] Scraping & Processing 📝")
     # Obtenemos los paths a usar
@@ -401,7 +417,20 @@ def main_contracts(db_user: str, db_user_password: str, db_host: str, db_port: s
         print("\t ❌ Failed to perform scraping for contract download")
         return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
     # Iniciamos el procesado de las delegaciones
-
-
+    try:
+        print("\t • Starting delegations processing")
+        final_contracts = process_data(delegation_list, downloads_path, delegations_dict)
+        print("\t\tFinal contracts generated successfully")
+    except Exception as e:
+        print("\t ❌ Failed to generate final contracts")
+        return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
+    # Iniciamos el proceso para subir la data en la base de datos
+    try:
+        print("\t • Uploading final contracts to database")
+        upload_data(final_contracts, db_user, db_user_password, db_host, db_port, db_name)
+        print("\t\tData uploaded successfully")
+    except Exception as e:
+        print("\t ❌ Failed to upload data to database")
+        return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
     # Terminamos la función regresando el resultado
     return Result(result=True)
