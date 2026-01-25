@@ -29,3 +29,10 @@ db_user_password = os.getenv("DB_USER_PASSWORD")
 db_host = os.getenv("DB_HOST")
 db_port = int(os.getenv("DB_PORT"))
 db_name = os.getenv("DB_NAME")
+
+user_mail = os.getenv("USER_MAIL")
+user_password = os.getenv("USER_PASSWORD")
+
+headless = strtobool(os.getenv("HEADLESS"))
+timeout = int(os.getenv("TIMEOUT"))
+max_workers = int(os.getenv("MAX_WORKERS"))

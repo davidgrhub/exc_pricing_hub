@@ -24,7 +24,8 @@ def main() -> None:
     if values.contracts:
         # Ejecutamos el bloque de contratos
         result: ContractsResult = main_contracts(values.db_user, values.db_user_password, values.db_host,
-                                                 values.db_port, values.db_name)
+                                                 values.db_port, values.db_name, values.headless, values.timeout,
+                                                 values.user_mail, values.user_password, values.max_workers)
         # Imprimimos si existe el error
         if not result.result: print(result.error)
     # Imprimimos el tiempo de ejecución total

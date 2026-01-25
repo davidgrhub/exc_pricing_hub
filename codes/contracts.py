@@ -5,7 +5,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, false
 from dataclasses import dataclass
 from selenium import webdriver
 from datetime import datetime
@@ -70,9 +70,210 @@ def get_activate_delegations(db_user: str, db_user_password: str, db_host: str, 
     return delegations_dict, delegation_list
 
 
+# Funciones para scraping
+def get_driver(geckodriver_path: str, headless: bool, downloads_path: str, delegation: str,
+               timeout: int) -> tuple[webdriver, WebDriverWait]:
+    # Declaramos si el sistema operativo es windows
+    is_windows = platform.system() == "Windows"
+    # Declaramos el servicio del driver
+    service = Service(geckodriver_path)
+    # Configuramos las opciones
+    options = webdriver.FirefoxOptions()
+    options.set_preference("intl.accept_languages", "en-US,en")
+    options.add_argument("-private")
+    firefox_exe = r"C:\Program Files\Mozilla Firefox\firefox.exe" if is_windows else "/usr/bin/firefox"
+    options.binary_location = firefox_exe
+    # Configuramos el headless
+    if not (is_windows and headless is False):
+        options.add_argument("--headless")
+    # Opciones de descarga
+    temp_path = os.path.join(downloads_path, delegation)
+    options.set_preference("browser.download.folderList", 2)
+    options.set_preference("browser.download.dir", temp_path)
+    options.set_preference("browser.download.useDownloadDir", True)
+    options.set_preference("browser.helperApps.neverAsk.saveToDisk",
+                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    # Iniciamos el driver
+    driver = webdriver.Firefox(options=options, service=service)
+    # Ingresamos el tiempo de espera
+    wait = WebDriverWait(driver, timeout)
+    # Terminamos la función regresando driver y wait
+    return driver, wait
+
+
+def sing_in(wait: WebDriverWait, user_mail: str, user_password: str) -> None:
+    # Ingresamos el correo
+    mail = wait.until(ec.visibility_of_element_located(
+        (By.XPATH, '//input[@id="email"]')))
+    mail.click()
+    mail.send_keys(user_mail)
+    time.sleep(1.5)
+    # Seleccionamos submit
+    wait.until(ec.visibility_of_element_located(
+        (By.XPATH, '//button[@id="submitBtn"]'))).click()
+    # Ingresamos la contraseña
+    password = wait.until(ec.visibility_of_element_located(
+        (By.XPATH, '//input[@type="password"]')))
+    password.click()
+    password.send_keys(user_password)
+    time.sleep(1.5)
+    # Seleccionamos iniciar sesión
+    wait.until(ec.visibility_of_element_located(
+        (By.XPATH, '//input[@type="submit"]'))).click()
+    # Mantenemos la sesión iniciada
+    wait.until(ec.visibility_of_element_located(
+        (By.XPATH, '//input[@type="submit"]'))).click()
+    # Terminamos la función
+    return
+
+
+def filter_delegation(driver: webdriver, timeout: int, delegation: str) -> bool:
+    # Cambiamos el tiempo de espera en este bloque
+    wait = WebDriverWait(driver, (timeout * 10))
+    # Desplegamos la lista de delegaciones
+    wait.until(ec.visibility_of_element_located(
+        (By.XPATH, '//i[@class="dropdown-chevron powervisuals-glyph chevron-down"]'))).click()
+    # Contador auxiliar
+    aux_count = 1
+    # Listado auxiliar de delegaciones
+    aux_delegation_list = []
+    # Variable de control
+    flag = False
+    # Repasamos las delegaciones del filtro
+    while True:
+        # Guardamos en una variable temporal
+        temp_element = wait.until(ec.visibility_of_element_located(
+            (By.XPATH, f'(//span[@class="slicerText"])[{aux_count}]')))
+        # Comprobamos que no este la delegación en la lista
+        if not temp_element.text in aux_delegation_list:
+            # Agregamos a la lista
+            aux_delegation_list.append(temp_element.text)
+            # Si la delegación es la que buscamos
+            if temp_element.text == delegation:
+                # Obtenemos el estado de la opción
+                val = wait.until(ec.visibility_of_element_located(
+                    (By.XPATH, f'(//div[@class="slicerItemContainer"][@title="{temp_element.text}"])')))
+                # Comprobamos que no este seleccionada la opción
+                if val.get_attribute('aria-selected') == 'false':
+                    # Seleccionamos la delegación
+                    wait.until(ec.visibility_of_element_located(
+                        (By.XPATH, f'(//span[@class="slicerText"])[{aux_count}]'))).click()
+                # Salimos del while
+                flag = True
+                break
+            # Si la delegación no es la que buscamos
+            else:
+                # Pasamos a la siguiente opción
+                webdriver.ActionChains(driver).send_keys(Keys.DOWN).perform()
+                time.sleep(1.2)
+                # Sumamos el contador como máximo 10 y lo mantenemos asi
+                if aux_count < 8:
+                    aux_count += 1
+        # Si la opción ya se encuentra en la lista
+        elif temp_element in aux_delegation_list:
+            # Cerramos el ciclo while
+            break
+    # Cerramos los filtros
+    wait.until(ec.visibility_of_element_located(
+        (By.XPATH, f'//div[@aria-label="Power BI Report"]'))).click()
+    # Terminamos la función regresando la bandera
+    return flag
+
+
+def download_data(driver: webdriver, timeout: int) -> None:
+    # Declaramos el tiempo máximo de espera del bloque
+    wait = WebDriverWait(driver, timeout)
+    # Seleccionamos más opciones
+    more_options = wait.until(ec.visibility_of_element_located(
+        (By.XPATH, f'//button[@data-testid="visual-more-options-btn"]')))
+    driver.execute_script("arguments[0].click();", more_options)
+    # Seleccionamos exportar datos
+    export_data = wait.until(ec.visibility_of_element_located(
+        (By.XPATH, f'//button[@data-testid="pbimenu-item.Export data"]')))
+    driver.execute_script("arguments[0].click();", export_data)
+    # Seleccionamos exportar
+    export = wait.until(ec.visibility_of_element_located(
+        (By.XPATH, f'//button[@data-testid="export-btn"]')))
+    driver.execute_script("arguments[0].click();", export)
+    # Cambiamos el tiempo máximo de espera
+    wait = WebDriverWait(driver, (timeout * 10))
+    # Esperamos a que se descargue el archivo
+    wait.until(ec.visibility_of_element_located(
+        (By.XPATH, f'//h2[@data-testid="toast-notification-title" and '
+                   f'normalize-space(text())="Successful export"]')))
+    time.sleep(2)
+    # Terminamos la función
+    return
+
+
+def refactor_data(downloads_path: str, delegation: str) -> bool:
+    # Declaramos las rutas
+    data_path = os.path.join(downloads_path, delegation, 'data.xlsx')
+    refactor_path = os.path.join(downloads_path, f'{delegation}.xlsx')
+    time.sleep(10)
+    # Comprobamos que el archivo exista
+    if os.path.exists(data_path):
+        # Renombramos y reubicamos el archivo
+        os.rename(data_path, refactor_path)
+        # Eliminamos la carpeta temporal
+        shutil.rmtree(os.path.join(downloads_path, delegation))
+        # Terminamos la función regresando el booleano
+        return True
+    else:
+        # Terminamos la función regresando el booleano
+        return False
+
+
+def run_scraping(delegation: str, geckodriver_path: str, headless: bool, downloads_path: str,
+                 timeout: int, user_mail: str, user_password: str) -> None:
+    # Iniciamos el log
+    print_value = f"\t\t{delegation}:"
+    # Inicializamos el driver
+    driver, wait = get_driver(geckodriver_path, headless, downloads_path, delegation, timeout)
+    # Ingresamos a la url del dash
+    driver.get('https://app.powerbi.com/groups/3bed2196-69fa-4b00-a42c-3ba9b23d3f69/reports/'
+               'a5b968a2-70a0-4cbb-8a16-d8967e1b12dc/30a19dcca000a2c74e73?experience=power-bi')
+    # Manejo de error para cerrar el driver
+    try:
+        # Iniciamos sesión en BI
+        sing_in(wait, user_mail, user_password)
+        print_value += "\n\t\t\tLogged in successfully"
+        # Filtramos la delegacion
+        if filter_delegation(driver, timeout, delegation):
+            print_value += "\n\t\t\tDelegation was found"
+            # Descargamos los contratos de la delegación
+            download_data(driver, timeout)
+            print_value += "\n\t\t\tReport exported successfully"
+            # Movemos el archivo descargado y lo renombramos
+            if refactor_data(downloads_path, delegation):
+                print_value += "\n\t\t\t✅ Data was refactored successfully"
+            # Si no encontramos el archivo descargado
+            else:
+                print_value += "\n\t\t\t⚠️ No data found"
+            # Salimos del scraping
+            driver.close()
+            driver.quit()
+        # Si no encontramos la delegacion
+        else:
+            print_value += "\n\t\t\t⚠️ Delegation was not found"
+    except TimeoutError:
+        # Salimos de nuestro scraping cerrando el driver y salimos
+        driver.close()
+        driver.quit()
+        print_value += "\n\t\t\t❌ Scraping failed"
+    # Imprimimos le resultado
+    print(print_value)
+    # Terminamos la función
+    return
+
+
+# Funciones de procesado
+
+
+
 # Función main
-def main_contracts(db_user: str, db_user_password: str, db_host: str, db_port: str,
-                   db_name: str) -> Result:
+def main_contracts(db_user: str, db_user_password: str, db_host: str, db_port: str, db_name: str,
+                   headless: bool, timeout: int, user_mail: str, user_password: str, max_workers: int) -> Result:
     print("\t[Contracts Block] Scraping & Processing 📝")
     # Obtenemos los paths a usar
     try:
@@ -98,5 +299,25 @@ def main_contracts(db_user: str, db_user_password: str, db_host: str, db_port: s
     except Exception as e:
         print(f"\t ❌ Failed to get delegation list")
         return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
+    # Iniciamos el scraping de las delegaciones
+    try:
+        print("\t • Starting delegations scraping")
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(run_scraping, delegation, geckodriver_path, headless, downloads_path, timeout,
+                                user_mail, user_password)
+                for delegation in delegation_list
+            ]
+            for f in as_completed(futures):
+                try:
+                    f.result()
+                except Exception as e:
+                    print(f"\t\t❌ Worker failed: {type(e).__name__}: {e}")
+    except Exception as e:
+        print("\t ❌ Failed to perform scraping for contract download")
+        return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
+    # Iniciamos el procesado de las delegaciones
+
+
     # Terminamos la función regresando el resultado
     return Result(result=True)
