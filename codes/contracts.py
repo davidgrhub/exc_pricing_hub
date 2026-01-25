@@ -80,7 +80,7 @@ def get_driver(geckodriver_path: str, headless: bool, downloads_path: str, deleg
     options = webdriver.FirefoxOptions()
     options.set_preference("intl.accept_languages", "en-US,en")
     options.add_argument("-private")
-    firefox_exe = r"C:\Program Files\Mozilla Firefox\firefox.exe" if is_windows else "/usr/bin/firefox"
+    firefox_exe = "/usr/bin/firefox-esr" if not is_windows else r"C:\Program Files\Mozilla Firefox\firefox.exe"
     options.binary_location = firefox_exe
     # Configuramos el headless
     if not (is_windows and headless is False):
