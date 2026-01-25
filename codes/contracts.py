@@ -5,14 +5,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
-from sqlalchemy import create_engine, text, false
+from sqlalchemy import create_engine, text
 from dataclasses import dataclass
 from selenium import webdriver
 from datetime import datetime
 import pandas as pd
-import requests
-import warnings
 import platform
+import warnings
 import shutil
 import time
 import os
