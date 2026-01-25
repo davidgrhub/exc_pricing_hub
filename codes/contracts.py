@@ -268,7 +268,91 @@ def run_scraping(delegation: str, geckodriver_path: str, headless: bool, downloa
 
 
 # Funciones de procesado
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    # Convertimos los nombres de columnas a nombres válidos
+    df.columns = (
+        df.columns
+        .str.lower().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8')
+        .str.replace(r'\s+', '_', regex=True).str.replace(r'[^\w]', '', regex=True)
+    )
+    # Eliminamos las últimas dos filas
+    df = df.iloc[:-2]
+    # Creamos una columna de ids unicos
+    df['unique_id'] = df['product_id'].astype(int).astype(str) + df['option_id'].astype(int).astype(str)
+    # Filtramos los servicios
+    df = df[df['contract_suplement'] == 'Service']
+    # Obtenemos la fecha actual
+    current_date = datetime.now()
+    # Filtramos los datos con fecha de contrato de servicio válidos
+    df = df[((df['fechainisc'] <= current_date) & (df['fechafinsc'] >= current_date))]
+    # Ordenamos los datos por "unique_id"
+    df = df.sort_values('unique_id', ascending=True)
+    # Terminamos la función regresando el dataframe
+    return df
 
+
+def get_final_contracts(df: pd.DataFrame, delegations_dict: dict[int, str]) -> pd.DataFrame:
+    # Creamos el dataframe final
+    final_data = pd.DataFrame()
+    # Procesamos cada 'unique_id' de los contratos
+    for unique_id in df['unique_id'].unique():
+        # Filtramos la data por cada 'unique_id'
+        is_data = df[df['unique_id'] == unique_id]
+        # Ordenamos por la columna 'rango_minpax' de menor a mayor
+        is_data = is_data.sort_values(by='rango_minpax', ascending=True).reset_index(drop=True)
+        # Declaramos la variable de precio
+        value = None
+        # Comprobamos la variable 'Base' o 'Adult'
+        if pd.notna(is_data.iloc[0]['sale_base_usd']) and pd.notna(is_data.iloc[0]['cost_base_usd']):
+            value = "base"
+        if pd.notna(is_data.iloc[0]['sale_adu_usd']) and pd.notna(is_data.iloc[0]['cost_adu_usd']):
+            value = "adu"
+        # Sí tenemos variable de costo y venta
+        if value is not None:
+            new_row = {
+                'unique_id': int(unique_id),
+                'delegation_id': delegations_dict.get(is_data.iloc[0]['delegation']),
+                'delegation_name': is_data.iloc[0]['delegation'],
+                'supplier': is_data.iloc[0]['supplier'],
+                'product_id': int(is_data.iloc[0]['product_id']),
+                'product_name': is_data.iloc[0]['product_name'],
+                'option_id': is_data.iloc[0]['option_id'],
+                'option_name': is_data.iloc[0]['option_name'],
+                'rango_minpax': is_data.iloc[0]['rango_minpax'],
+                'rango_maxpax': is_data.iloc[0]['rango_maxpax'],
+                'base_or_adult': value.upper(),
+                'cost': round(is_data.iloc[0]['cost_' + value + '_usd'], 2),
+                'sale': round(is_data.iloc[0]['sale_' + value + '_usd'], 2),
+                'margin': round(
+                    (is_data.iloc[0]['sale_' + value + '_usd'] - is_data.iloc[0]['cost_' + value + '_usd'])
+                    / is_data.iloc[0]['sale_' + value + '_usd'], 2)
+            }
+            final_data = pd.concat([final_data, pd.DataFrame([new_row])], ignore_index=True)
+    # Terminamos la función regresando el dataframe
+    return final_data
+
+
+def process_data(delegation_list: list[str], downloads_paths: str, delegations_dict: dict[int, str]) -> pd.DataFrame:
+    # Ignoramos Warnings
+    warnings.filterwarnings("ignore")
+    # Lista de dataframes
+    all_dfs = []
+    # Procesamos cada una de las delegaciones
+    for delegation in delegation_list:
+        # Creamos el path del archivo
+        excel_path = os.path.join(downloads_paths, f"{delegation}.xlsx")
+        # Comprobamos si existe el archivo
+        if os.path.exists(excel_path):
+            # Leemos el archivo
+            df = pd.read_excel(os.path.join(downloads_path, f'{delegation}.xlsx'))
+            # Limpiamos los contratos
+            df = clean_data(df)
+            # Reestructura de contratos
+            df = get_final_contracts(df, delegations_dict)
+        else:
+            print(f"\t\tFile not found for delegation {delegation}")
+    # Terminamos la función regresando el dataframe final
+    return
 
 
 # Función main
