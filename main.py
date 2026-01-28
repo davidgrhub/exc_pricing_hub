@@ -3,7 +3,7 @@ from codes.contracts import main_contracts
 import codes.values as values
 import time
 
-#
+
 # Función auxiliar
 def format_time(start_time: float) -> str:
     # Calcula el tiempo transcurrido desde nuestro tiempo de inicio
