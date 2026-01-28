@@ -166,7 +166,7 @@ def filter_delegation(driver: webdriver, timeout: int, delegation: str) -> bool:
                 webdriver.ActionChains(driver).send_keys(Keys.DOWN).perform()
                 time.sleep(1.2)
                 # Sumamos el contador como máximo 10 y lo mantenemos asi
-                if aux_count < 8:
+                if aux_count < 7:
                     aux_count += 1
         # Si la opción ya se encuentra en la lista
         elif temp_element in aux_delegation_list:
@@ -229,11 +229,11 @@ def run_scraping(delegation: str, geckodriver_path: str, headless: bool, downloa
     print_value = f"\t\t{delegation}:"
     # Inicializamos el driver
     driver, wait = get_driver(geckodriver_path, headless, downloads_path, delegation, timeout)
-    # Ingresamos a la url del dash
-    driver.get('https://app.powerbi.com/groups/3bed2196-69fa-4b00-a42c-3ba9b23d3f69/reports/'
-               'a5b968a2-70a0-4cbb-8a16-d8967e1b12dc/30a19dcca000a2c74e73?experience=power-bi')
     # Manejo de error para cerrar el driver
     try:
+        # Ingresamos a la url del dash
+        driver.get('https://app.powerbi.com/groups/3bed2196-69fa-4b00-a42c-3ba9b23d3f69/reports/'
+                   'a5b968a2-70a0-4cbb-8a16-d8967e1b12dc/30a19dcca000a2c74e73?experience=power-bi')
         # Iniciamos sesión en BI
         sing_in(wait, user_mail, user_password)
         print_value += "\n\t\t\tLogged in successfully"
@@ -344,7 +344,7 @@ def process_data(delegation_list: list[str], downloads_paths: str,
         # Comprobamos si existe el archivo
         if os.path.exists(excel_path):
             # Leemos el archivo
-            df = pd.read_excel(os.path.join(downloads_path, f'{delegation}.xlsx'))
+            df = pd.read_excel(os.path.join(downloads_paths, f'{delegation}.xlsx'))
             # Limpiamos los contratos
             df = clean_data(df)
             # Reestructura de contratos
