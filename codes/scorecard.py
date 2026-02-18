@@ -10,10 +10,12 @@ from dataclasses import dataclass
 from selenium import webdriver
 from datetime import datetime
 import pandas as pd
+import numpy as np
 import platform
 import warnings
 import shutil
 import time
+import re
 import os
 
 
@@ -55,18 +57,42 @@ def get_activate_delegations(db_user: str, db_user_password: str, db_host: str, 
     engine = create_engine(connection_string)
     # Creamos la cadena de petición
     query = text("SELECT delegation_id, delegation_name FROM delegations WHERE is_active = 1")
-    # Creamos el diccionario y la lista final
-    delegations_dict = {}
+    # Creamos la lista final
     delegation_list = []
     # Creamos la conexión
     with engine.connect() as conn:
         result = conn.execute(query).fetchall()
-    # Creamos el diccionario y la lista con el resultado
+    # Creamos la lista con el resultado
     for delegation_id, delegation_name in result:
-        delegations_dict[delegation_name] = delegation_id
         delegation_list.append(delegation_name)
-    # Terminamos la función regresando el diccionario y la lista de nombres
-    return delegations_dict, delegation_list
+    # Terminamos la función regresando la lista de nombres
+    return delegation_list
+
+
+def get_required_strategies(db_user: str, db_user_password: str, db_host: str, db_port: int,
+                             db_name: str) -> pd.DataFrame:
+    # Cadena de conexión
+    connection_string = f"mysql+pymysql://{db_user}:{db_user_password}@{db_host}:{db_port}/{db_name}"
+    # Creamos el engine
+    engine = create_engine(connection_string)
+    # Creamos la conexión
+    with engine.connect() as conn:
+        # Lista de unique_id
+        query_ids = text("SELECT unique_id FROM final_discounts_ok")
+        result_ids = conn.execute(query_ids).fetchall()
+        unique_ids = [row[0] for row in result_ids]
+        # DataFrame final_strategies
+        final_strategies_df = pd.read_sql("SELECT * FROM final_strategies", conn)
+        # DataFrame de sales
+        final_sales = pd.read_sql("SELECT * FROM sales_data", conn)
+    # Filtrar filas que NO están en final_discounts_ok
+    mask_missing = ~final_strategies_df["unique_id"].isin(unique_ids)
+    # Aplicar reglas a las filas de la mascara
+    final_strategies_df.loc[mask_missing, "final_discount"] = 0.0
+    final_strategies_df.loc[mask_missing, "final_sale"] = final_strategies_df.loc[mask_missing, "sale"]
+    final_strategies_df.loc[mask_missing, "final_margin"] = final_strategies_df.loc[mask_missing, "margin"]
+    # Terminamos la función regresando el dataframe
+    return final_strategies_df, final_sales
 
 
 # Funciones para scraping
@@ -151,7 +177,7 @@ def filter_delegation(driver: webdriver, timeout: int, delegation: str) -> bool:
             if temp_element.text == delegation:
                 # Obtenemos el estado de la opción
                 val = wait.until(ec.visibility_of_element_located(
-                    (By.XPATH, f'(//div[@class="slicerItemContainer"][@title="{temp_element.text}"])')))
+                    (By.XPATH, f'//div[contains(@class, "slicerItemContainer") and @title="{temp_element.text}"]')))
                 # Comprobamos que no este seleccionada la opción
                 if val.get_attribute('aria-selected') == 'false' or val.get_attribute('aria-checked') == 'false':
                     # Seleccionamos la delegación
@@ -232,8 +258,8 @@ def run_scraping(delegation: str, geckodriver_path: str, headless: bool, downloa
     # Manejo de error para cerrar el driver
     try:
         # Ingresamos a la url del dash
-        driver.get('https://app.powerbi.com/groups/3bed2196-69fa-4b00-a42c-3ba9b23d3f69/reports/'
-                   'a5b968a2-70a0-4cbb-8a16-d8967e1b12dc/30a19dcca000a2c74e73?experience=power-bi')
+        driver.get('https://app.powerbi.com/links/G-0EQeHMhR?ctid=34b7220f-ddb0-49fb-b389-f4b8d3e1ec9a'
+                   '&pbi_source=linkShare')
         # Iniciamos sesión en BI
         sing_in(wait, user_mail, user_password)
         print_value += "\n\t\t\tLogged in successfully"
@@ -255,7 +281,7 @@ def run_scraping(delegation: str, geckodriver_path: str, headless: bool, downloa
         # Si no encontramos la delegacion
         else:
             print_value += "\n\t\t\t⚠️ Delegation was not found"
-            # Salimos del scraping
+            # Salimos de nuestro scraping cerrando el driver y salimos
             driver.close()
             driver.quit()
     except TimeoutError:
@@ -270,72 +296,43 @@ def run_scraping(delegation: str, geckodriver_path: str, headless: bool, downloa
 
 
 # Funciones de procesado
+def clean_column(name):
+    # Estandarizamos nombre de columnas
+    name = name.lower()
+    name = name.replace("%", "percent")
+    name = name.replace("&", "")
+    name = re.sub(r"[^\w]+", "_", name)
+    name = re.sub(r"_+", "_", name)
+    # Regresamos
+    return name.strip("_")
+
+
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    # Convertimos los nombres de columnas a nombres válidos
-    df.columns = (
-        df.columns
-        .str.lower().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8')
-        .str.replace(r'\s+', '_', regex=True).str.replace(r'[^\w]', '', regex=True)
-    )
-    # Eliminamos las últimas dos filas
-    df = df.iloc[:-2]
-    # Creamos una columna de ids unicos
-    df['unique_id'] = df['product_id'].astype(int).astype(str) + df['option_id'].astype(int).astype(str)
-    # Filtramos los servicios
-    df = df[df['contract_suplement'] == 'Service']
-    # Obtenemos la fecha actual
-    current_date = datetime.now()
-    # Filtramos los datos con fecha de contrato de servicio válidos
-    df = df[((df['fechainisc'] <= current_date) & (df['fechafinsc'] >= current_date))]
-    # Ordenamos los datos por "unique_id"
-    df = df.sort_values('unique_id', ascending=True)
+    # Estandarizamos columnas
+    df.columns = ["_".join([str(a).strip() for a in col if pd.notna(a) and str(a).strip() != ""])
+                  for col in df.columns]
+    df.columns = [clean_column(col) for col in df.columns]
+    # Renombrar columnas específicas
+    df = df.rename(columns={"channel_with_cc_del_nombre": "delegation_name",
+                            "channel_with_cc_rsg_sercodigo": "rsg_sercode"})
+    # Eliminamos las columnas de margin
+    df = df.loc[:, ~df.columns.str.contains("marg")]
+    # Eliminar filas completamente vacías
+    df = df.dropna(how="all")
+    # Eliminar filas que sean "total"
+    mask_total = df.apply(lambda r: r.astype(str).str.fullmatch(r'(?i)\s*total\s*').any(), axis=1)
+    df = df[~mask_total]
+    # Eliminar footer (si existe)
+    mask_footer = df.apply(lambda r: r.astype(str).str.contains(r'(?i)applied filters|produced by|report',
+                                                                regex=True).any(), axis=1)
+    df = df[~mask_footer]
+    # Reiniciamos el index
+    df = df.reset_index(drop=True)
     # Terminamos la función regresando el dataframe
     return df
 
 
-def get_final_contracts(df: pd.DataFrame, delegations_dict: dict[int, str]) -> pd.DataFrame:
-    # Creamos el dataframe final
-    final_data = pd.DataFrame()
-    # Procesamos cada 'unique_id' de los contratos
-    for unique_id in df['unique_id'].unique():
-        # Filtramos la data por cada 'unique_id'
-        is_data = df[df['unique_id'] == unique_id]
-        # Ordenamos por la columna 'rango_minpax' de menor a mayor
-        is_data = is_data.sort_values(by='rango_minpax', ascending=True).reset_index(drop=True)
-        # Declaramos la variable de precio
-        value = None
-        # Comprobamos la variable 'Base' o 'Adult'
-        if pd.notna(is_data.iloc[0]['sale_base_usd']) and pd.notna(is_data.iloc[0]['cost_base_usd']):
-            value = "base"
-        if pd.notna(is_data.iloc[0]['sale_adu_usd']) and pd.notna(is_data.iloc[0]['cost_adu_usd']):
-            value = "adu"
-        # Sí tenemos variable de costo y venta
-        if value is not None:
-            new_row = {
-                'unique_id': int(unique_id),
-                'delegation_id': delegations_dict.get(is_data.iloc[0]['delegation']),
-                'delegation_name': is_data.iloc[0]['delegation'],
-                'supplier': is_data.iloc[0]['supplier'],
-                'product_id': int(is_data.iloc[0]['product_id']),
-                'product_name': is_data.iloc[0]['product_name'],
-                'option_id': is_data.iloc[0]['option_id'],
-                'option_name': is_data.iloc[0]['option_name'],
-                'rango_minpax': is_data.iloc[0]['rango_minpax'],
-                'rango_maxpax': is_data.iloc[0]['rango_maxpax'],
-                'base_or_adult': value.upper(),
-                'cost': round(is_data.iloc[0]['cost_' + value + '_usd'], 2),
-                'sale': round(is_data.iloc[0]['sale_' + value + '_usd'], 2),
-                'margin': round(
-                    (is_data.iloc[0]['sale_' + value + '_usd'] - is_data.iloc[0]['cost_' + value + '_usd'])
-                    / is_data.iloc[0]['sale_' + value + '_usd'], 2)
-            }
-            final_data = pd.concat([final_data, pd.DataFrame([new_row])], ignore_index=True)
-    # Terminamos la función regresando el dataframe
-    return final_data
-
-
-def process_data(delegation_list: list[str], downloads_paths: str,
-                 delegations_dict: dict[int, str]) -> pd.DataFrame:
+def process_data(delegation_list: list[str], downloads_paths: str) -> pd.DataFrame:
     # Ignoramos Warnings
     warnings.filterwarnings("ignore")
     # Lista de dataframes
@@ -347,92 +344,191 @@ def process_data(delegation_list: list[str], downloads_paths: str,
         # Comprobamos si existe el archivo
         if os.path.exists(excel_path):
             # Leemos el archivo
-            df = pd.read_excel(os.path.join(downloads_paths, f'{delegation}.xlsx'))
+            df = pd.read_excel(os.path.join(downloads_paths, f'{delegation}.xlsx'), header=[0, 1])
             # Limpiamos los contratos
             df = clean_data(df)
-            # Reestructura de contratos
-            df = get_final_contracts(df, delegations_dict)
             # Guardamos en la lista de dfs
             all_dfs.append(df)
         else:
             print(f"\t\tFile not found for delegation {delegation}")
     # Unimos todos en un dataframe final
     final_df = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame()
-    # Terminamos la función regresando el dataframe final
+    # Terminamos la funcion regresando el dataframe final
     return final_df
 
 
 # Función para subir la data
 def upload_data(df: pd.DataFrame, db_user: str, db_user_password: str, db_host: str, db_port: int,
-                db_name: str) -> None:
+                db_name: str, table_name: str) -> None:
     # Creamos la conexión
     engine = create_engine(f"mysql+pymysql://{db_user}:{db_user_password}@{db_host}:{db_port}/{db_name}")
     # Agregamos el dataframe a la base de datos
-    df.to_sql('final_contracts', con=engine, if_exists='replace', index=False)
+    df.to_sql(table_name, con=engine, if_exists='replace', index=False)
     # Terminamos la función
     return
 
 
+# Funcion para generar el scorecard
+def safe_to_numeric(s: pd.Series) -> pd.Series:
+    return pd.to_numeric(s, errors="coerce")
+
+
+def scaled_points(values: pd.Series, weight: float, ref_u: float) -> pd.Series:
+    # Comprobamos que sea numérico
+    v = safe_to_numeric(values).fillna(0.0)
+    # Referencia por percentil u (valor real del set)
+    ref = v.quantile(ref_u, interpolation="higher") if len(v) else 0.0
+    # si ref <= 0, no tiene sentido escalar (evita divisiones raras)
+    if not np.isfinite(ref) or ref <= 0:
+        return pd.Series(np.zeros(len(v)), index=v.index, dtype=float)
+    # Ratio
+    ratio = (v / ref).clip(lower=0, upper=1)
+    # Regresamos la ponderacion
+    return weight * ratio
+
+
+def get_scorecard(strategies_data: pd.DataFrame, sales_data: pd.DataFrame, u: float, w_nm: float,
+                  w_m: float, priority_product: list[int], w_p: float, priority_suppliers: list[str],
+                  w_s: float, w_in: float, w_bk: float) -> pd.DataFrame:
+    # Hacemos una copia de los dataframes
+    strat = strategies_data.copy()
+    sales = sales_data.copy()
+    # Creamos el margen nominal
+    strat["nominal_margin"] = (safe_to_numeric(strat["final_sale"]) - safe_to_numeric(strat["cost"])).round(4)
+    # Mascara costo mayor a 1
+    mask_strat = safe_to_numeric(strat["cost"]).fillna(0.0) > 1
+    # Ponderación de margen
+    strat["pts_margin"] = 0.0
+    strat.loc[mask_strat, "pts_margin"] = (
+        scaled_points(strat.loc[mask_strat, "final_margin"], w_m, u).round(4))
+    # Ponderación de margen nomial
+    strat["pts_nominal_margin"] = 0.0
+    strat.loc[mask_strat, "pts_nominal_margin"] = (
+        scaled_points(strat.loc[mask_strat, "nominal_margin"], w_nm, u).round(4))
+    # Ponderación producto
+    strat["pts_product"] = np.where(strat["product_id"].astype(int).isin(priority_product), w_p, 0.0)
+    # Ponderaciones de proveedor
+    strat["pts_supplier"] = np.where(strat["supplier"].astype(str).isin([str(x) for x in priority_suppliers]),
+                                     w_s, 0.0)
+    # Columnas de sales necesarias
+    sales_cols = ["b2b_off_income_usd", "b2b_off_booking_qty", "callcenter_income_usd", "callcenter_booking_qty",
+                  "nexus_web_whitelabel_income_usd", "nexus_web_whitelabel_booking_qty", "nexusgo_income_usd",
+                  "nexusgo_booking_qty", "total_income_usd", "total_booking_qty", "nexusapp_income_usd",
+                  "nexusapp_booking_qty"]
+    # Normalizamos las llaves de union
+    strat["product_key"] = safe_to_numeric(strat["product_id"]).fillna(0).astype("Int64").astype(str)
+    sales["product_key"] = safe_to_numeric(sales["rsg_sercode"]).fillna(0).astype("Int64").astype(str)
+    # Si tenemos ids duplicados sumamos
+    sales_agg = ( sales.groupby("product_key", as_index=False)[sales_cols] .sum(numeric_only=True))
+    # Unimos las ventas por canal MERGE
+    strat = strat.merge(sales_agg, on="product_key", how="left")
+    # Limpiamos filas y redondeo
+    strat[sales_cols] = strat[sales_cols].apply(safe_to_numeric).fillna(0.0).round(2)
+    # Eliminamos la fila de la llave
+    strat.drop(columns=["product_key"], inplace=True)
+    # Listado de los canales de venta
+    chanel_list = ["b2b_off", "callcenter", "nexus_web_whitelabel", "nexusgo", "total", "nexusapp"]
+    # Pasamos por cada canal
+    for chanel in chanel_list:
+        # Ponderación del income
+        strat[f"pts_{chanel}_income"] = scaled_points(strat[f"{chanel}_income_usd"], w_in, u).round(4)
+        # Ponderación de los bookings
+        strat[f"pts_{chanel}_bookings"] = scaled_points(strat[f"{chanel}_booking_qty"], w_bk, u).round(4)
+        # Ponderación final
+        strat[f"{chanel}_priority"] = (strat["pts_margin"] + strat["pts_nominal_margin"] + strat["pts_product"] +
+                                       strat["pts_supplier"] + strat[f"pts_{chanel}_income"] +
+                                       strat[f"pts_{chanel}_bookings"]).round(4)
+    # Terminamos la función
+    return strat
+
+
 # Función main
-def main_contracts(db_user: str, db_user_password: str, db_host: str, db_port: int, db_name: str,
-                   headless: bool, timeout: int, user_mail: str, user_password: str, max_workers: int) -> Result:
-    print("\t[Contracts Block] Scraping & Processing 📝")
-    # Obtenemos los paths a usar
+def main_scorecard(db_user: str, db_user_password : str, db_host: str, db_port: str, db_name: str,
+                   headless: bool, timeout: str, user_mail: str, user_password: str,
+                   max_workers: int, u: float, w_nm: float, w_m: float, priority_product: list[int],
+                   w_p: float, priority_suppliers: list[str], w_s: float, w_in: float, w_bk: float,
+                   scraping: bool) -> Result:
+    print("\t[Scorecard Block] Priority Ranking 📊")
+    if scraping:
+        # Obtenemos los paths a usar
+        try:
+            geckodriver_path, downloads_path = get_paths()
+            print(f"\t • Block paths:\n"
+                  f"\t\t🦎 geckodriver: {geckodriver_path}\n"
+                  f"\t\t📥 downloads: {downloads_path}")
+        except Exception as e:
+            print("\t ❌ Failed to retrieve block paths")
+            return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
+        # Recreamos la carpeta de descargas
+        try:
+            recreate_folder(downloads_path)
+            print(f"\t • Downloads folder recreated successfully")
+        except Exception as e:
+            print(f"\t ❌ Failed to recreate downloads folder")
+            return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
+        # Obtenemos la lista de delegaciones activas y su diccionario
+        try:
+            delegation_list = get_activate_delegations(db_user, db_user_password, db_host, db_port, db_name)
+            print(f"\t • Delegations loaded successfully ({len(delegation_list)})")
+        except Exception as e:
+            print(f"\t ❌ Failed to get delegation list")
+            return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
+        # Iniciamos el scraping de las delegaciones
+        try:
+            print("\t • Starting delegations scraping")
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                futures = [
+                    executor.submit(run_scraping, delegation, geckodriver_path, headless, downloads_path, timeout,
+                                    user_mail, user_password)
+                    for delegation in delegation_list
+                ]
+                for f in as_completed(futures):
+                    try:
+                        f.result()
+                    except Exception as e:
+                        print(f"\t\t❌ Worker failed: {type(e).__name__}: {e}")
+        except Exception as e:
+            print("\t ❌ Failed to perform scraping for contract download")
+            return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
+        # Iniciamos el procesado de las delegaciones
+        try:
+            print("\t • Starting delegations processing")
+            sales_data_df = process_data(delegation_list, downloads_path)
+            print("\t\tFinal data generated successfully")
+        except Exception as e:
+            print("\t ❌ Failed to generate final data")
+            return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
+        # Iniciamos el proceso para subir la data en la base de datos
+        try:
+            print("\t • Uploading final data to database")
+            upload_data(sales_data_df, db_user, db_user_password, db_host, db_port, db_name, 'sales_data')
+            print("\t\tData uploaded successfully")
+        except Exception as e:
+            print("\t ❌ Failed to upload data to database")
+            return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
+    # Obtenemos la data que usaremos para el scorecard
     try:
-        geckodriver_path, downloads_path = get_paths()
-        print(f"\t • Block paths:\n"
-              f"\t\t🦎 geckodriver: {geckodriver_path}\n"
-              f"\t\t📥 downloads: {downloads_path}")
+        strategies_data, sales_data_df = get_required_strategies(db_user, db_user_password, db_host, db_port, db_name)
+        print(f"\t • Strategies loaded successfully ({len(strategies_data)})")
     except Exception as e:
-        print("\t ❌ Failed to retrieve block paths")
+        print(f"\t ❌ Failed to get strategies data")
         return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
-    # Recreamos la carpeta de descargas
+    # Creamos el scorecard
     try:
-        recreate_folder(downloads_path)
-        print(f"\t • Downloads folder recreated successfully")
+        print("\t • Generating weighted scorecard")
+        df_scorecard = get_scorecard(strategies_data, sales_data_df, u, w_nm, w_m, priority_product, w_p,
+                                     priority_suppliers, w_s, w_in, w_bk)
+        print("\t\tWeighted scorecard generated successfully")
     except Exception as e:
-        print(f"\t ❌ Failed to recreate downloads folder")
-        return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
-    # Obtenemos la lista de delegaciones activas y su diccionario
-    try:
-        delegations_dict, delegation_list = get_activate_delegations(db_user, db_user_password, db_host, db_port,
-                                                                     db_name)
-        print(f"\t • Delegations loaded successfully ({len(delegation_list)})")
-    except Exception as e:
-        print(f"\t ❌ Failed to get delegation list")
-        return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
-    # Iniciamos el scraping de las delegaciones
-    try:
-        print("\t • Starting delegations scraping")
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = [
-                executor.submit(run_scraping, delegation, geckodriver_path, headless, downloads_path, timeout,
-                                user_mail, user_password)
-                for delegation in delegation_list
-            ]
-            for f in as_completed(futures):
-                try:
-                    f.result()
-                except Exception as e:
-                    print(f"\t\t❌ Worker failed: {type(e).__name__}: {e}")
-    except Exception as e:
-        print("\t ❌ Failed to perform scraping for contract download")
-        return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
-    # Iniciamos el procesado de las delegaciones
-    try:
-        print("\t • Starting delegations processing")
-        final_contracts = process_data(delegation_list, downloads_path, delegations_dict)
-        print("\t\tFinal contracts generated successfully")
-    except Exception as e:
-        print("\t ❌ Failed to generate final contracts")
+        print(f"\t ❌ Failed to generate weighted scorecard")
         return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
     # Iniciamos el proceso para subir la data en la base de datos
     try:
-        print("\t • Uploading final contracts to database")
-        upload_data(final_contracts, db_user, db_user_password, db_host, db_port, db_name)
-        print("\t\tData uploaded successfully")
+        print("\t • Uploading final scorecard")
+        upload_data(df_scorecard, db_user, db_user_password, db_host, db_port, db_name, 'scorecard')
+        print("\t\tScorecard uploaded successfully")
     except Exception as e:
-        print("\t ❌ Failed to upload data to database")
+        print("\t ❌ Failed to upload scorecard to database")
         return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
     # Terminamos la función regresando el resultado
     return Result(result=True)
