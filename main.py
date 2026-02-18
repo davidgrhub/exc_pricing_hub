@@ -65,6 +65,7 @@ def main() -> None:
     # Imprimimos el tiempo de ejecución total
     print(f"[MAIN] Execution time: {format_time(start_time)}")
     # Terminamos la función
+    return
 
 
 # Main
