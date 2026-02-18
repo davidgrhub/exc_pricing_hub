@@ -33,7 +33,7 @@ def update_env_file(file_path: str, updates: dict) -> None:
     # Editamos el archivo
     with open(file_path, 'w') as f:
         f.writelines(updated_content)
-    print(f"✅ Archivo {file_path} ile successfully updated")
+    print(f"\t • [{file_path}] file successfully updated")
     # Terminamos la función
     return
 
