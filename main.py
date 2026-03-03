@@ -4,6 +4,8 @@ from codes.strategies import Result as StrategiesResult
 from codes.strategies import main_strategies
 from codes.discounts import Result as DiscountsResult
 from codes.discounts import main_discounts
+from codes.images import Result as ImagesResult
+from codes.images import main_images
 from codes.scorecard import Result as ScorecardResult
 from codes.scorecard import main_scorecard
 import codes.values as values
@@ -51,7 +53,16 @@ def main() -> None:
                                                  values.max_workers_discounts, values.user_mail, values.user_password)
         # Imprimimos si existe el error
         if not result.result: print(result.error)
+    # Bloque de imagenes
+    if values.images:
+        # Ejecutamos el bloque de imagenes
+        result: ImagesResult = main_images(values.db_user, values.db_user_password, values.db_host, values.db_port,
+                                           values.db_name, values.headless, values.timeout, values.user_mail,
+                                           values.user_password, values.max_workers_images)
+        # Imprimimos si existe el error
+        if not result.result: print(result.error)
     # Bloque de scorecard
+    """
     if values.scorecard:
         # Ejecutamos el bloque de scorecard
         result: ScorecardResult = main_scorecard(values.db_user, values.db_user_password, values.db_host,
@@ -62,6 +73,7 @@ def main() -> None:
                                                  values.w_bk, values.scraping_scorecard)
         # Imprimimos si existe el error
         if not result.result: print(result.error)
+    """
     # Imprimimos el tiempo de ejecución total
     print(f"[MAIN] Execution time: {format_time(start_time)}")
     # Terminamos la función
