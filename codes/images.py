@@ -119,22 +119,22 @@ def get_url_image(wait: WebDriverWait, driver: webdriver) -> str:
     cells = container.find_elements(By.XPATH, ".//table/tbody/tr/td")
     # Declaramos las variables a usar en el for
     best_url = ""
-    max_ranking = -1
+    min_ranking = float('inf')
     # Pasamos por cada uno de los elementos
     for cell in cells:
         try:
-            # Extraemos el valor del input en el ranking
             ranking_input = cell.find_element(By.XPATH, ".//input[@type='text']")
             current_ranking = int(ranking_input.get_attribute("value"))
-            # Extraer el src de la imagen
             img_element = cell.find_element(By.XPATH, ".//div[2]/img")
             img_url = img_element.get_attribute("src")
-            # Comparar para encontrar el mayor ranking
-            if current_ranking > max_ranking:
-                max_ranking = current_ranking
+            # Si es 0, terminamos y regresamos YA.
+            if current_ranking == 0:
+                return img_url
+            # Si no es 0, verificamos si es el menor que hemos visto hasta ahora
+            if current_ranking < min_ranking:
+                min_ranking = current_ranking
                 best_url = img_url
-        except Exception as e:
-            # Si una celda está vacía o no tiene los elementos, saltamos a la siguiente
+        except Exception:
             continue
     # Terminamos la función regresando el src
     return best_url
@@ -165,14 +165,14 @@ def run_scraping(product_id: int, geckodriver_path: str, timeout: int, headless:
 
 def clean_url(raw_url) -> str:
     try:
-        # Extraemos lo que está despues de '&img='
+        # Buscamos la parte que empieza después de '&img='
         path = raw_url.split('&img=')[1]
-        # Nos quedamos con lo que esta antes del formato
-        clean_path = path.split('.jpg')[0] + ".jpg"
-        # Terminamos la función con el nuevo prefijo
+        # Cortamos en el siguiente '&'
+        clean_path = path.split('&')[0]
+        # Retornamos la URL construida
         return f"https://www.nexustours.com/images/upload{clean_path}"
-    except Exception:
-        # Terminamos la función regresando el link vacío
+    except (IndexError, Exception):
+        # Si no existe '&img=' o ocurre un error, regresamos vacío
         return ""
 
 
