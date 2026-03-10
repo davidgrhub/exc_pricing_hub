@@ -4,8 +4,8 @@ from codes.strategies import Result as StrategiesResult
 from codes.strategies import main_strategies
 from codes.discounts import Result as DiscountsResult
 from codes.discounts import main_discounts
-from codes.images import Result as ImagesResult
-from codes.images import main_images
+from codes.information import Result as InformationResult
+from codes.information import main_information
 from codes.scorecard import Result as ScorecardResult
 from codes.scorecard import main_scorecard
 import codes.values as values
@@ -53,12 +53,13 @@ def main() -> None:
                                                  values.max_workers_discounts, values.user_mail, values.user_password)
         # Imprimimos si existe el error
         if not result.result: print(result.error)
-    # Bloque de imagenes
-    if values.images:
+    # Bloque de información
+    if values.information:
         # Ejecutamos el bloque de imagenes
-        result: ImagesResult = main_images(values.db_user, values.db_user_password, values.db_host, values.db_port,
-                                           values.db_name, values.headless, values.timeout, values.user_mail,
-                                           values.user_password, values.max_workers_images)
+        result: InformationResult = main_information(values.db_user, values.db_user_password, values.db_host,
+                                                     values.db_port, values.db_name, values.headless, values.timeout,
+                                                     values.user_mail, values.user_password,
+                                                     values.max_workers_information)
         # Imprimimos si existe el error
         if not result.result: print(result.error)
     # Bloque de scorecard

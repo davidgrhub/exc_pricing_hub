@@ -140,29 +140,6 @@ def get_url_image(wait: WebDriverWait, driver: webdriver) -> str:
     return best_url
 
 
-def run_scraping(product_id: int, geckodriver_path: str, timeout: int, headless: bool, user: str,
-                 user_password: str) -> str:
-    # Iniciamos el driver
-    driver, wait = get_driver(geckodriver_path, headless, timeout)
-    # Manejo de error para cerrar el driver
-    try:
-        # Ingresamos a intranet
-        sing_in(driver, wait, user, user_password)
-        # Ingresamos a la configuración del tour
-        driver.get(f'https://www.nexustours.com/Intranet/serviciosV2/TabMantenimiento.aspx?servicio={product_id}')
-        # Obtenemos la imagen del tour
-        url = get_url_image(wait, driver)
-    except TimeoutException:
-        # Si tenemos error el link sera null
-        url = ""
-    finally:
-        # Salimos del scraping
-        driver.close()
-        driver.quit()
-    # Terminamos la funcion regresando el link
-    return url
-
-
 def clean_url(raw_url) -> str:
     try:
         # Buscamos la parte que empieza después de '&img='
@@ -174,6 +151,63 @@ def clean_url(raw_url) -> str:
     except (IndexError, Exception):
         # Si no existe '&img=' o ocurre un error, regresamos vacío
         return ""
+
+
+def get_extra_information(wait: WebDriverWait) -> tuple[str, str, str, str, str, str, str, str]:
+    # Guardamos los nombres
+    service_name_es = wait.until(ec.visibility_of_element_located(
+        (By.ID, "nombreServ_es-inputEl"))).get_attribute("value")
+    service_name_en = wait.until(ec.visibility_of_element_located(
+        (By.ID, "nombreServ_en-inputEl"))).get_attribute("value")
+    service_name_pt = wait.until(ec.visibility_of_element_located(
+        (By.ID, "nombreServ_pt-inputEl"))).get_attribute("value")
+    service_name_fr = wait.until(ec.visibility_of_element_located(
+        (By.ID, "nombreServ_fr-inputEl"))).get_attribute("value")
+    # Guardamos la descripcion corta
+    short_description_es = wait.until(ec.visibility_of_element_located(
+        (By.ID, "textareaDesCort_es-inputEl"))).get_attribute("value")
+    short_description_en = wait.until(ec.visibility_of_element_located(
+        (By.ID, "textareaDesCort_en-inputEl"))).get_attribute("value")
+    short_description_pt = wait.until(ec.visibility_of_element_located(
+        (By.ID, "textareaDesCort_pt-inputEl"))).get_attribute("value")
+    short_description_fr = wait.until(ec.visibility_of_element_located(
+        (By.ID, "textareaDesCort_fr-inputEl"))).get_attribute("value")
+    # Terminamos la funcion regresando la información extra
+    return (service_name_es, service_name_en, service_name_pt, service_name_fr, short_description_es,
+            short_description_en, short_description_pt, short_description_fr)
+
+
+def run_scraping(product_id: int, geckodriver_path: str, timeout: int, headless: bool, user: str,
+                 user_password: str) -> dict:
+    # Inicializamos las variables:
+    data = {
+        "url": "", "service_name_es": "", "service_name_en": "", "service_name_pt": "", "service_name_fr": "",
+        "short_description_es": "", "short_description_en": "", "short_description_pt": "", "short_description_fr": ""
+    }
+    # Iniciamos el driver
+    driver, wait = get_driver(geckodriver_path, headless, timeout)
+    # Manejo de error para cerrar el driver
+    try:
+        # Ingresamos a intranet
+        sing_in(driver, wait, user, user_password)
+        # Ingresamos a la configuración del tour
+        driver.get(f'https://www.nexustours.com/Intranet/serviciosV2/TabMantenimiento.aspx?servicio={product_id}')
+        # Obtenemos la imagen del tour
+        raw_url = get_url_image(wait, driver)
+        data["url"] = clean_url(raw_url)
+        # Obtenemos la información extra
+        (data["service_name_es"], data["service_name_en"], data["service_name_pt"], data["service_name_fr"],
+         data["short_description_es"], data["short_description_en"], data["short_description_pt"],
+         data["short_description_fr"]) = get_extra_information(wait)
+    except TimeoutException:
+        # Si tenemos error
+        print(f"\t\t❌ Failed to get information from ID {product_id}")
+    finally:
+        # Salimos del scraping
+        driver.close()
+        driver.quit()
+    # Terminamos la funcion regresando el link
+    return data
 
 
 def scraping(unique_ids: list[int], geckodriver_path: str, timeout: int, headless: bool,
@@ -191,12 +225,11 @@ def scraping(unique_ids: list[int], geckodriver_path: str, timeout: int, headles
             # Recuperamos el id del tour
             item_id = futures[f]
             try:
-                raw_url = f.result()
-                if raw_url:
-                    # Limpiamos la URL
-                    final_link = clean_url(raw_url)
+                scraped_data = f.result()
+                if scraped_data:
                     # Guardamos para el DataFrame
-                    results_list.append({"id": item_id, "link": final_link})
+                    scraped_data["id"] = item_id
+                    results_list.append(scraped_data)
             except Exception as e:
                 print(f"\t\t❌ Worker failed for ID {item_id}: {e}")
     # Al terminar el bucle, creamos el DataFrame
@@ -216,7 +249,7 @@ def upload_data(df: pd.DataFrame, db_user: str, db_user_password: str, db_host: 
 
 
 # Función main
-def main_images(db_user: str, db_user_password: str, db_host: str, db_port: int, db_name: str,
+def main_information(db_user: str, db_user_password: str, db_host: str, db_port: int, db_name: str,
                    headless: bool, timeout: int, user_mail: str, user_password: str, max_workers: int) -> Result:
     print("\t[Images Block] Scraping & Extracting Links 🖼️")
     # Obtenemos la lista de ids unicos para buscar sus imagenes
@@ -228,14 +261,14 @@ def main_images(db_user: str, db_user_password: str, db_host: str, db_port: int,
         return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
     # Obtenemos el link de las imagenes de cada id
     try:
-        print("\t • Starting image scraping")
+        print("\t • Starting information scraping")
         geckodriver_path = GeckoDriverManager().install()
         df = scraping(unique_ids, geckodriver_path, timeout, headless, user_mail, user_password, max_workers)
     except Exception as e:
-        print("\t ❌ Failed to perform scraping for image download")
+        print("\t ❌ Failed to perform scraping for information")
         return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
     try:
-        print("\t • Uploading link images to database")
+        print("\t • Uploading tour information to database")
         upload_data(df, db_user, db_user_password, db_host, db_port, db_name)
         print("\t\tData uploaded successfully")
     except Exception as e:
