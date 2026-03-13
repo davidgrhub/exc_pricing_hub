@@ -6,6 +6,8 @@ from codes.discounts import Result as DiscountsResult
 from codes.discounts import main_discounts
 from codes.information import Result as InformationResult
 from codes.information import main_information
+from codes.availability import Result as AvailabilityResult
+from codes.availability import main_availability
 from codes.scorecard import Result as ScorecardResult
 from codes.scorecard import main_scorecard
 import codes.values as values
@@ -60,6 +62,14 @@ def main() -> None:
                                                      values.db_port, values.db_name, values.headless, values.timeout,
                                                      values.user_mail, values.user_password,
                                                      values.max_workers_information)
+        # Imprimimos si existe el error
+        if not result.result: print(result.error)
+    # Bloque de disponibilidad
+    if values.availability:
+        # Ejecutamos el bloque de disponibilidad
+        result: AvailabilityResult = main_availability(values.db_user, values.db_user_password, values.db_host,
+                                                       values.db_port, values.db_name, values.headless, values.timeout,
+                                                       values.max_workers_availability)
         # Imprimimos si existe el error
         if not result.result: print(result.error)
     # Bloque de scorecard
