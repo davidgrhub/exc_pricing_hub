@@ -155,7 +155,6 @@ def main_availability(db_user: str, db_user_password: str, db_host: str, db_port
         print("\t • Starting information scraping")
         geckodriver_path = GeckoDriverManager().install()
         df = scraping(unique_product, geckodriver_path, timeout, headless, max_workers)
-        print(df)
     except Exception as e:
         print("\t ❌ Failed to perform scraping for availability")
         return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
