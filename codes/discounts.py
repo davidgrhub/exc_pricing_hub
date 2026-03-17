@@ -430,8 +430,8 @@ def apply_discounts(wait: WebDriverWait, strategy: str, discount: float, df: pd.
                 wait.until(ec.visibility_of_element_located(
                     (By.XPATH, '//li[@title="Exit"]'))).click()
                 # Aceptamos la alerta de confirmación
-                alert = wait.until(ec.alert_is_present())
-                alert.accept()
+                #alert = wait.until(ec.alert_is_present())
+                #alert.accept()
                 time.sleep(5)
                 # Iniciamos sesión nuevamente con azure
                 wait.until(ec.visibility_of_element_located(
