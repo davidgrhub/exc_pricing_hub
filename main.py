@@ -73,18 +73,18 @@ def main() -> None:
         # Imprimimos si existe el error
         if not result.result: print(result.error)
     # Bloque de scorecard
-    """
     if values.scorecard:
         # Ejecutamos el bloque de scorecard
         result: ScorecardResult = main_scorecard(values.db_user, values.db_user_password, values.db_host,
                                                  values.db_port, values.db_name, values.headless, values.timeout,
                                                  values.user_mail, values.user_password, values.max_workers_scorecard,
-                                                 values.u, values.w_nm, values.w_m, values.priority_product,
-                                                 values.w_p, values.priority_suppliers, values.w_s, values.w_in,
-                                                 values.w_bk, values.scraping_scorecard)
+                                                 values.u_nm, values.w_nm, values.method_nm, values.u_m, values.w_m,
+                                                 values.method_m, values.priority_product, values.w_p,
+                                                 values.priority_suppliers, values.w_s, values.u_in, values.w_in,
+                                                 values.method_in, values.u_bk, values.w_bk, values.method_bk,
+                                                 values.scraping_scorecard)
         # Imprimimos si existe el error
         if not result.result: print(result.error)
-    """
     # Imprimimos el tiempo de ejecución total
     print(f"[MAIN] Execution time: {format_time(start_time)}")
     # Terminamos la función

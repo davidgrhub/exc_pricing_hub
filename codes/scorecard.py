@@ -70,7 +70,7 @@ def get_activate_delegations(db_user: str, db_user_password: str, db_host: str, 
 
 
 def get_required_strategies(db_user: str, db_user_password: str, db_host: str, db_port: int,
-                             db_name: str) -> pd.DataFrame:
+                             db_name: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     # Cadena de conexión
     connection_string = f"mysql+pymysql://{db_user}:{db_user_password}@{db_host}:{db_port}/{db_name}"
     # Creamos el engine
@@ -85,6 +85,11 @@ def get_required_strategies(db_user: str, db_user_password: str, db_host: str, d
         final_strategies_df = pd.read_sql("SELECT * FROM final_strategies", conn)
         # DataFrame de sales
         final_sales = pd.read_sql("SELECT * FROM sales_data", conn)
+        # DataFrame de información
+        tour_info_df = pd.read_sql("SELECT * FROM tour_information", conn)
+        # DataFrame de disponibilidad
+        query_availability = text("SELECT id, availability, deeplink FROM availability WHERE availability = 1")
+        availability_df = pd.read_sql(query_availability, conn)
     # Filtrar filas que NO están en final_discounts_ok
     mask_missing = ~final_strategies_df["unique_id"].isin(unique_ids)
     # Aplicar reglas a las filas de la mascara
@@ -92,7 +97,7 @@ def get_required_strategies(db_user: str, db_user_password: str, db_host: str, d
     final_strategies_df.loc[mask_missing, "final_sale"] = final_strategies_df.loc[mask_missing, "sale"]
     final_strategies_df.loc[mask_missing, "final_margin"] = final_strategies_df.loc[mask_missing, "margin"]
     # Terminamos la función regresando el dataframe
-    return final_strategies_df, final_sales
+    return final_strategies_df, final_sales, tour_info_df, availability_df
 
 
 # Funciones para scraping
@@ -373,11 +378,20 @@ def safe_to_numeric(s: pd.Series) -> pd.Series:
     return pd.to_numeric(s, errors="coerce")
 
 
-def scaled_points(values: pd.Series, weight: float, ref_u: float) -> pd.Series:
+def scaled_points(values: pd.Series, weight: float, method: str, ref_u: float) -> pd.Series:
     # Comprobamos que sea numérico
     v = safe_to_numeric(values).fillna(0.0)
-    # Referencia por percentil u (valor real del set)
-    ref = v.quantile(ref_u, interpolation="higher") if len(v) else 0.0
+    # Determinamos la referencia según la forma
+    if method == "percentile":
+        ref = v.quantile(ref_u, interpolation="higher") if len(v) else 0.0
+    elif method == "max":
+        ref = v.max() if len(v) else 0.0
+    elif method == "min":
+        ref = v.min() if len(v) else 0.0
+    elif method == "mean":
+        ref = v.mean() if len(v) else 0.0
+    else:
+        raise ValueError("Método no reconocido. Usa 'percentile', 'max', 'min' o 'mean'.")
     # si ref <= 0, no tiene sentido escalar (evita divisiones raras)
     if not np.isfinite(ref) or ref <= 0:
         return pd.Series(np.zeros(len(v)), index=v.index, dtype=float)
@@ -387,9 +401,10 @@ def scaled_points(values: pd.Series, weight: float, ref_u: float) -> pd.Series:
     return weight * ratio
 
 
-def get_scorecard(strategies_data: pd.DataFrame, sales_data: pd.DataFrame, u: float, w_nm: float,
-                  w_m: float, priority_product: list[int], w_p: float, priority_suppliers: list[str],
-                  w_s: float, w_in: float, w_bk: float) -> pd.DataFrame:
+def get_scorecard(strategies_data: pd.DataFrame, sales_data: pd.DataFrame, u_nm: float, w_nm: float,
+                  method_nm: str, u_m: float,  w_m: float, method_m: str,  priority_product: list[int],
+                  w_p: float, priority_suppliers: list[str], w_s: float, u_in: float, w_in: float,
+                  method_in: str, u_bk: float, w_bk: float, method_bk: str) -> pd.DataFrame:
     # Hacemos una copia de los dataframes
     strat = strategies_data.copy()
     sales = sales_data.copy()
@@ -400,11 +415,11 @@ def get_scorecard(strategies_data: pd.DataFrame, sales_data: pd.DataFrame, u: fl
     # Ponderación de margen
     strat["pts_margin"] = 0.0
     strat.loc[mask_strat, "pts_margin"] = (
-        scaled_points(strat.loc[mask_strat, "final_margin"], w_m, u).round(4))
+        scaled_points(strat.loc[mask_strat, "final_margin"], w_m, method_m, u_m).round(4))
     # Ponderación de margen nomial
     strat["pts_nominal_margin"] = 0.0
     strat.loc[mask_strat, "pts_nominal_margin"] = (
-        scaled_points(strat.loc[mask_strat, "nominal_margin"], w_nm, u).round(4))
+        scaled_points(strat.loc[mask_strat, "nominal_margin"], w_nm, method_nm, u_nm).round(4))
     # Ponderación producto
     strat["pts_product"] = np.where(strat["product_id"].astype(int).isin(priority_product), w_p, 0.0)
     # Ponderaciones de proveedor
@@ -431,9 +446,9 @@ def get_scorecard(strategies_data: pd.DataFrame, sales_data: pd.DataFrame, u: fl
     # Pasamos por cada canal
     for chanel in chanel_list:
         # Ponderación del income
-        strat[f"pts_{chanel}_income"] = scaled_points(strat[f"{chanel}_income_usd"], w_in, u).round(4)
+        strat[f"pts_{chanel}_income"] = scaled_points(strat[f"{chanel}_income_usd"], w_in, method_in, u_in).round(4)
         # Ponderación de los bookings
-        strat[f"pts_{chanel}_bookings"] = scaled_points(strat[f"{chanel}_booking_qty"], w_bk, u).round(4)
+        strat[f"pts_{chanel}_bookings"] = scaled_points(strat[f"{chanel}_booking_qty"], w_bk, method_bk, u_bk).round(4)
         # Ponderación final
         strat[f"{chanel}_priority"] = (strat["pts_margin"] + strat["pts_nominal_margin"] + strat["pts_product"] +
                                        strat["pts_supplier"] + strat[f"pts_{chanel}_income"] +
@@ -442,11 +457,41 @@ def get_scorecard(strategies_data: pd.DataFrame, sales_data: pd.DataFrame, u: fl
     return strat
 
 
+def get_top_scorecard(df_scorecard: pd.DataFrame, tour_info_df: pd.DataFrame,
+                      availability_df: pd.DataFrame) -> pd.DataFrame:
+    # Ordenamos el dataframe y mantenemos un unico product_id
+    df_clean = df_scorecard.sort_values('final_sale', ascending=False)
+    df_clean = df_clean.drop_duplicates(subset=['product_id'], keep='first').copy()
+    # Seleccionamos las columnas del scorecard
+    columns_to_keep = [
+        "unique_id", "delegation_id", "delegation_name", "supplier", "product_id", "product_name", "option_id",
+        "option_name", "sale", "final_discount", "final_sale", "final_margin", "total_priority"
+    ]
+    df_result = df_clean[columns_to_keep].copy()
+    # Unimos la disponibilidad
+    avail_to_merge = availability_df[['id', 'availability', 'deeplink']].rename(columns={'id': 'product_id'})
+    df_result = pd.merge(df_result, avail_to_merge, on='product_id', how='left')
+    # Unimos con la información de tours
+    tour_info_clean = tour_info_df.rename(columns={'id': 'product_id', 'url': 'img_url'})
+    df_result = pd.merge(df_result, tour_info_clean, on='product_id', how='left')
+    # Filtramos las filas donde si tengamos disponibilidad
+    df_result = df_result[df_result['availability'] == 1].copy()
+    # Ordemanos por prioridad
+    df_result = df_result.sort_values(by=['delegation_id', 'total_priority'], ascending=[True, False])
+    # Ranking de productos
+    product_rank = df_result.groupby('delegation_id')['product_id'].transform(lambda x: pd.factorize(x)[0] + 1)
+    # Filtramos para quedarnos solo con los primeros 15 productos únicos
+    df_final = df_result[product_rank <= 15].reset_index(drop=True)
+    # Terminamos la función regresando el df final
+    return df_final
+
+
 # Función main
 def main_scorecard(db_user: str, db_user_password : str, db_host: str, db_port: str, db_name: str,
-                   headless: bool, timeout: str, user_mail: str, user_password: str,
-                   max_workers: int, u: float, w_nm: float, w_m: float, priority_product: list[int],
-                   w_p: float, priority_suppliers: list[str], w_s: float, w_in: float, w_bk: float,
+                   headless: bool, timeout: str, user_mail: str, user_password: str, max_workers: int,
+                   u_nm: float, w_nm: float, method_nm: str, u_m: float,  w_m: float, method_m: str,
+                   priority_product: list[int], w_p: float, priority_suppliers: list[str], w_s: float,
+                   u_in: float, w_in: float, method_in: str, u_bk: float, w_bk: float, method_bk: str,
                    scraping: bool) -> Result:
     print("\t[Scorecard Block] Priority Ranking 📊")
     if scraping:
@@ -508,7 +553,8 @@ def main_scorecard(db_user: str, db_user_password : str, db_host: str, db_port: 
             return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
     # Obtenemos la data que usaremos para el scorecard
     try:
-        strategies_data, sales_data_df = get_required_strategies(db_user, db_user_password, db_host, db_port, db_name)
+        (strategies_data, sales_data_df, tour_info_df,
+         availability_df) = get_required_strategies(db_user, db_user_password, db_host, db_port, db_name)
         print(f"\t • Strategies loaded successfully ({len(strategies_data)})")
     except Exception as e:
         print(f"\t ❌ Failed to get strategies data")
@@ -516,11 +562,20 @@ def main_scorecard(db_user: str, db_user_password : str, db_host: str, db_port: 
     # Creamos el scorecard
     try:
         print("\t • Generating weighted scorecard")
-        df_scorecard = get_scorecard(strategies_data, sales_data_df, u, w_nm, w_m, priority_product, w_p,
-                                     priority_suppliers, w_s, w_in, w_bk)
+        df_scorecard = get_scorecard(strategies_data, sales_data_df, u_nm, w_nm, method_nm, u_m, w_m, method_m,
+                                     priority_product, w_p, priority_suppliers, w_s, u_in, w_in, method_in,
+                                     u_bk, w_bk, method_bk)
         print("\t\tWeighted scorecard generated successfully")
     except Exception as e:
         print(f"\t ❌ Failed to generate weighted scorecard")
+        return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
+    # Obtenemos el top por delegación
+    try:
+        print("\t • Generating top scorecard")
+        df_top_scorecard = get_top_scorecard(df_scorecard, tour_info_df, availability_df)
+        print("\t\tTop scorecard generated successfully")
+    except Exception as e:
+        print(f"\t ❌ Failed to generate top scorecard")
         return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
     # Iniciamos el proceso para subir la data en la base de datos
     try:
@@ -529,6 +584,14 @@ def main_scorecard(db_user: str, db_user_password : str, db_host: str, db_port: 
         print("\t\tScorecard uploaded successfully")
     except Exception as e:
         print("\t ❌ Failed to upload scorecard to database")
+        return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
+    # Iniciamos el proceso para subir la data del top en la base de datos
+    try:
+        print("\t • Uploading top scorecard")
+        upload_data(df_top_scorecard, db_user, db_user_password, db_host, db_port, db_name, 'top_scorecard')
+        print("\t\tTop scorecard uploaded successfully")
+    except Exception as e:
+        print("\t ❌ Failed to upload top scorecard to database")
         return Result(result=False, error=f"\t[Error] -> {type(e).__name__}: {e}")
     # Terminamos la función regresando el resultado
     return Result(result=True)
