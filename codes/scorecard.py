@@ -111,8 +111,6 @@ def get_driver(geckodriver_path: str, headless: bool, downloads_path: str, deleg
     options = webdriver.FirefoxOptions()
     options.set_preference("intl.accept_languages", "en-US,en")
     options.add_argument("-private-window")
-    # firefox_exe = "/usr/bin/firefox-esr" if not is_windows else r"C:\Program Files\Mozilla Firefox\firefox.exe"
-    # options.binary_location = firefox_exe
     # Configuramos el headless
     if not (is_windows and headless is False):
         options.add_argument("--headless")
@@ -169,6 +167,8 @@ def filter_delegation(driver: webdriver, timeout: int, delegation: str) -> bool:
     aux_delegation_list = []
     # Variable de control
     flag = False
+    # Variable para el ultimo intento
+    last_chance = False
     # Repasamos las delegaciones del filtro
     while True:
         # Guardamos en una variable temporal
@@ -196,13 +196,20 @@ def filter_delegation(driver: webdriver, timeout: int, delegation: str) -> bool:
                 # Pasamos a la siguiente opción
                 webdriver.ActionChains(driver).send_keys(Keys.DOWN).perform()
                 time.sleep(1.2)
-                # Sumamos el contador como máximo 10 y lo mantenemos asi
-                if aux_count < 7:
+                # Sumamos el contador como máximo 8 y lo mantenemos asi
+                if aux_count < 6:
                     aux_count += 1
-        # Si la opción ya se encuentra en la lista
-        elif temp_element.text in aux_delegation_list:
-            # Cerramos el ciclo while
-            break
+        else:
+            # Sí estamos en la posición 6
+            if aux_count == 6 and not last_chance:
+                # Intentamos leer la posición 7
+                aux_count = 7
+                last_chance = True
+                # Volvemos al inicio del while para leer el index 7
+                continue
+            else:
+                # Salimos del ciclo
+                break
     # Cerramos los filtros
     wait.until(ec.visibility_of_element_located(
         (By.XPATH, f'//div[@aria-label="Power BI Report"]'))).click()
