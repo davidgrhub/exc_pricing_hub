@@ -50,7 +50,7 @@ def recreate_folder(path: str) -> None:
 
 
 def get_activate_delegations(db_user: str, db_user_password: str, db_host: str, db_port: int,
-                             db_name: str) -> tuple[dict[int, str], list[str]]:
+                             db_name: str) -> list[str]:
     # Cadena de conexión
     connection_string = f"mysql+pymysql://{db_user}:{db_user_password}@{db_host}:{db_port}/{db_name}"
     # Creamos el engine
@@ -92,7 +92,7 @@ def get_required_strategies(db_user: str, db_user_password: str, db_host: str, d
         availability_df = pd.read_sql(query_availability, conn)
     # Filtrar filas que NO están en final_discounts_ok
     mask_missing = ~final_strategies_df["unique_id"].isin(unique_ids)
-    # Aplicar reglas a las filas de la mascara
+    # Aplicar reglas a las filas de la máscara
     final_strategies_df.loc[mask_missing, "final_discount"] = 0.0
     final_strategies_df.loc[mask_missing, "final_sale"] = final_strategies_df.loc[mask_missing, "sale"]
     final_strategies_df.loc[mask_missing, "final_margin"] = final_strategies_df.loc[mask_missing, "margin"]
@@ -306,7 +306,7 @@ def clean_column(name):
     name = name.lower()
     name = name.replace("%", "percent")
     name = name.replace("&", "")
-    name = re.sub(r"[^\w]+", "_", name)
+    name = re.sub(r"\W+", "_", name)
     name = re.sub(r"_+", "_", name)
     # Regresamos
     return name.strip("_")
@@ -358,7 +358,7 @@ def process_data(delegation_list: list[str], downloads_paths: str) -> pd.DataFra
             print(f"\t\tFile not found for delegation {delegation}")
     # Unimos todos en un dataframe final
     final_df = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame()
-    # Terminamos la funcion regresando el dataframe final
+    # Terminamos la función regresando el dataframe final
     return final_df
 
 
@@ -373,7 +373,7 @@ def upload_data(df: pd.DataFrame, db_user: str, db_user_password: str, db_host: 
     return
 
 
-# Funcion para generar el scorecard
+# Función para generar el scorecard
 def safe_to_numeric(s: pd.Series) -> pd.Series:
     return pd.to_numeric(s, errors="coerce")
 
@@ -397,7 +397,7 @@ def scaled_points(values: pd.Series, weight: float, method: str, ref_u: float) -
         return pd.Series(np.zeros(len(v)), index=v.index, dtype=float)
     # Ratio
     ratio = (v / ref).clip(lower=0, upper=1)
-    # Regresamos la ponderacion
+    # Regresamos la ponderación
     return weight * ratio
 
 
@@ -476,7 +476,7 @@ def get_top_scorecard(df_scorecard: pd.DataFrame, tour_info_df: pd.DataFrame,
     df_result = pd.merge(df_result, tour_info_clean, on='product_id', how='left')
     # Filtramos las filas donde si tengamos disponibilidad
     df_result = df_result[df_result['availability'] == 1].copy()
-    # Ordemanos por prioridad
+    # Ordenamos por prioridad
     df_result = df_result.sort_values(by=['delegation_id', 'total_priority'], ascending=[True, False])
     # Ranking de productos
     product_rank = df_result.groupby('delegation_id')['product_id'].transform(lambda x: pd.factorize(x)[0] + 1)
@@ -487,8 +487,8 @@ def get_top_scorecard(df_scorecard: pd.DataFrame, tour_info_df: pd.DataFrame,
 
 
 # Función main
-def main_scorecard(db_user: str, db_user_password : str, db_host: str, db_port: str, db_name: str,
-                   headless: bool, timeout: str, user_mail: str, user_password: str, max_workers: int,
+def main_scorecard(db_user: str, db_user_password : str, db_host: str, db_port: int, db_name: str,
+                   headless: bool, timeout: int, user_mail: str, user_password: str, max_workers: int,
                    u_nm: float, w_nm: float, method_nm: str, u_m: float,  w_m: float, method_m: str,
                    priority_product: list[int], w_p: float, priority_suppliers: list[str], w_s: float,
                    u_in: float, w_in: float, method_in: str, u_bk: float, w_bk: float, method_bk: str,
