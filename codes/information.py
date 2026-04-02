@@ -32,10 +32,8 @@ def get_unique_product_ids(db_user: str, db_user_password: str, db_host: str, db
     connection_string = f"mysql+pymysql://{db_user}:{db_user_password}@{db_host}:{db_port}/{db_name}"
     # Creamos el engine
     engine = create_engine(connection_string)
-    # Query para obtener IDs únicos de la tabla final_strategies
+    # Query para obtener ID únicos de la tabla final_strategies
     query = text("SELECT DISTINCT product_id FROM final_strategies WHERE product_id IS NOT NULL")
-    # Lista de ids
-    product_ids = []
     # Ejecutamos la conexión y extraemos los datos
     with engine.connect() as conn:
         result = conn.execute(query).fetchall()
@@ -163,7 +161,7 @@ def get_extra_information(wait: WebDriverWait) -> tuple[str, str, str, str, str,
         (By.ID, "nombreServ_pt-inputEl"))).get_attribute("value")
     service_name_fr = wait.until(ec.visibility_of_element_located(
         (By.ID, "nombreServ_fr-inputEl"))).get_attribute("value")
-    # Guardamos la descripcion corta
+    # Guardamos la descripción corta
     short_description_es = wait.until(ec.visibility_of_element_located(
         (By.ID, "textareaDesCort_es-inputEl"))).get_attribute("value")
     short_description_en = wait.until(ec.visibility_of_element_located(
@@ -172,7 +170,7 @@ def get_extra_information(wait: WebDriverWait) -> tuple[str, str, str, str, str,
         (By.ID, "textareaDesCort_pt-inputEl"))).get_attribute("value")
     short_description_fr = wait.until(ec.visibility_of_element_located(
         (By.ID, "textareaDesCort_fr-inputEl"))).get_attribute("value")
-    # Terminamos la funcion regresando la información extra
+    # Terminamos la función regresando la información extra
     return (service_name_es, service_name_en, service_name_pt, service_name_fr, short_description_es,
             short_description_en, short_description_pt, short_description_fr)
 
@@ -200,13 +198,13 @@ def run_scraping(product_id: int, geckodriver_path: str, timeout: int, headless:
          data["short_description_es"], data["short_description_en"], data["short_description_pt"],
          data["short_description_fr"]) = get_extra_information(wait)
     except TimeoutException:
-        # Si tenemos error
+        # Sí tenemos error
         print(f"\t\t❌ Failed to get information from ID {product_id}")
     finally:
         # Salimos del scraping
         driver.close()
         driver.quit()
-    # Terminamos la funcion regresando el link
+    # Terminamos la función regresando el link
     return data
 
 
@@ -222,7 +220,7 @@ def scraping(unique_ids: list[int], geckodriver_path: str, timeout: int, headles
             for id_tour in unique_ids
         }
         for f in as_completed(futures):
-            # Recuperamos el id del tour
+            # Recuperamos él id del tour
             item_id = futures[f]
             try:
                 scraped_data = f.result()

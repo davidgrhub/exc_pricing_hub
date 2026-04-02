@@ -415,7 +415,7 @@ def main_contracts(db_user: str, db_user_password: str, db_host: str, db_port: i
             # Si no quedan delegaciones pendientes terminamos
             if not pending:
                 break
-            # Si intentamos mas de una vez
+            # Sí intentamos más de una vez
             if attempt > 1:
                 print(f"\t • Retry attempt {attempt}/{max_retries} for {len(pending)} delegation(s): {pending}")
             # Lista de delegaciones con error
@@ -439,7 +439,7 @@ def main_contracts(db_user: str, db_user_password: str, db_host: str, db_port: i
                         failed.append(delegation)
             # Reintentamos las delegaciones que fallaron
             pending = failed
-        # Imprimimos si tenemos delegaciones despues de los intentos máximos
+        # Imprimimos si tenemos delegaciones después de los intentos máximos
         if pending:
             print(f"\t\t⚠️ These delegations could not be scraped after {max_retries} attempts: {pending}")
     except Exception as e:

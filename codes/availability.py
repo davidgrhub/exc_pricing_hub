@@ -32,7 +32,7 @@ def get_unique_product_ids(db_user: str, db_user_password: str, db_host: str, db
     connection_string = f"mysql+pymysql://{db_user}:{db_user_password}@{db_host}:{db_port}/{db_name}"
     # Creamos el engine
     engine = create_engine(connection_string)
-    # Query para obtener IDs únicos de la tabla final_strategies
+    # Query para obtener ID únicos de la tabla final_strategies
     query = text("""
         SELECT DISTINCT product_id, delegation_id 
         FROM final_strategies 
@@ -88,7 +88,7 @@ def run_scraping(element: dict, geckodriver_path: str, timeout: int, headless: b
         # Si tenemos disponibilidad agregamos a la data
         data["availability"] = 1
     except TimeoutException:
-        # Si tenemos error
+        # Sí tenemos error
         print(f"\t\t❌ Failed to get availability from ID {element['product_id']}")
         data["availability"] = 0
     finally:
@@ -114,7 +114,7 @@ def scraping(unique_product: list[dict], geckodriver_path: str, timeout: int, he
             for element in unique_product
         }
         for f in as_completed(futures):
-            # Recuperamos el id del tour
+            # Recuperamos él, id del tour
             item_id = futures[f]
             try:
                 scraped_data = f.result()
@@ -142,7 +142,7 @@ def upload_data(df: pd.DataFrame, db_user: str, db_user_password: str, db_host: 
 # Función main
 def main_availability(db_user: str, db_user_password: str, db_host: str, db_port: int, db_name: str,
                       headless: bool, timeout: int, max_workers: int) -> Result:
-    print("\t[Availability Block] Scraping & Deeplinks 🔍")
+    print("\t[Availability Block] Scraping & Deep links 🔍")
     # Obtenemos la lista de ids unicos para buscar sus imagenes
     try:
         unique_product = get_unique_product_ids(db_user, db_user_password, db_host, db_port, db_name)
