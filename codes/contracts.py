@@ -407,7 +407,7 @@ def main_contracts(db_user: str, db_user_password: str, db_host: str, db_port: i
     try:
         print("\t • Starting delegations scraping")
         # Declaramos el numero máximo de intentos
-        max_retries = 3
+        max_retries = 5
         # Delegaciones pendientes
         pending = list(delegation_list)
         # Ciclo de intentos
