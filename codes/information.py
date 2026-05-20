@@ -241,7 +241,7 @@ def upload_data(df: pd.DataFrame, db_user: str, db_user_password: str, db_host: 
     # Creamos la conexión
     engine = create_engine(f"mysql+pymysql://{db_user}:{db_user_password}@{db_host}:{db_port}/{db_name}")
     # Agregamos el dataframe a la base de datos
-    df.to_sql('images', con=engine, if_exists='replace', index=False)
+    df.to_sql('tour_information', con=engine, if_exists='replace', index=False)
     # Terminamos la función
     return
 
