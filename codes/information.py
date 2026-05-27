@@ -189,7 +189,8 @@ def run_scraping(product_id: int, geckodriver_path: str, timeout: int, headless:
         # Ingresamos a intranet
         sing_in(driver, wait, user, user_password)
         # Ingresamos a la configuración del tour
-        driver.get(f'https://www.nexustours.com/Intranet/serviciosV2/TabMantenimiento.aspx?servicio={product_id}')
+        driver.get(f'https://www.nexustours.com/Intranet/serviciosV2/TabMantenimiento.aspx?servicio={product_id}'
+                   f'&idInt=serv&typeServ=TKT')
         # Obtenemos la imagen del tour
         raw_url = get_url_image(wait, driver)
         data["url"] = clean_url(raw_url)
